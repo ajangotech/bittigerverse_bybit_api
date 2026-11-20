@@ -21,6 +21,28 @@ services:
       retries: 3
       start_period: 20s
 
+  update-ads:
+    build:
+      context: .
+      dockerfile: services/update-ads/Dockerfile
+    image: bittiger-update-ads:latest
+    container_name: bittiger-update-ads
+    restart: unless-stopped
+    env_file:
+      - .env
+    expose:
+      - "8090"
+    mem_limit: 512m
+    cpus: 0.75
+    networks:
+      - bittiger-internal
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=3)"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
   main-api:
     build:
       context: .
@@ -49,6 +71,8 @@ services:
     restart: unless-stopped
     depends_on:
       price-limit:
+        condition: service_healthy
+      update-ads:
         condition: service_healthy
       main-api:
         condition: service_healthy

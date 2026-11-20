@@ -26,6 +26,8 @@ def get_api(data=None):
         api_secret=data.get("api_secret", os.getenv("BYBIT_API_SECRET")),
     )
 
+# Trading-preference helpers live in the dedicated update-ads service.
+
 def build_trading_pref(tp):
     tp = tp or {}
     return {
