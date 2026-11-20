@@ -1,0 +1,68 @@
+services:
+  price-limit:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: bittiger-bybit-api:latest
+    container_name: bittiger-price-limit
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      SERVICE_ROLE: price-limit
+    expose:
+      - "8090"
+    mem_limit: 512m
+    cpus: 0.75
+    networks:
+      - bittiger-internal
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=3)"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  main-api:
+    image: bittiger-bybit-api:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bittiger-main-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      SERVICE_ROLE: main
+    expose:
+      - "8090"
+    mem_limit: 768m
+    cpus: 1.0
+    networks:
+      - bittiger-internal
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=3)"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: bittiger-nginx
+    restart: unless-stopped
+    depends_on:
+      price-limit:
+        condition: service_healthy
+      main-api:
+        condition: service_healthy
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - bittiger-internal
+
+networks:
+  bittiger-internal:
+    driver: bridge
