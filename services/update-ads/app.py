@@ -1,7 +1,7 @@
 import logging
 from flask import Flask, jsonify
 
-from common import require_api_keys, get_api, build_trading_pref, extract_payment_ids
+from common import require_api_keys, get_api, build_trading_pref
 
 try:
     from flask_cors import CORS
@@ -15,6 +15,15 @@ if CORS:
     CORS(app, resources={r"/*": {"origins": "*"}})
 
 logging.getLogger("bybit_p2p._p2p_manager").setLevel(logging.CRITICAL)
+
+
+def extract_payment_ids(data):
+    """Extract Bybit payment method IDs exactly as the original monolithic API did."""
+    return [
+        p.get("id")
+        for p in data.get("paymentTerms", [])
+        if isinstance(p, dict) and p.get("id")
+    ]
 
 
 @app.route("/", methods=["GET"])
