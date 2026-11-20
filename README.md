@@ -1,80 +1,116 @@
-# BitTiger Bybit P2P API — Docker Microservices
+# BitTiger Bybit P2P API — Independent Python Microservices
 
-This repository packages the supplied Flask API into two isolated containers:
+This version runs the API as **two completely separate Python applications in two separate Docker containers**:
 
-- `price-limit`: serves only `POST /api/ad-price-limit`
-- `main-api`: serves all remaining API routes
-- `nginx`: public reverse proxy; routes the price-limit path to its dedicated container
+- `price-limit` → its own Python app, image, container, cache and Gunicorn process. It serves only `POST /api/ad-price-limit`.
+- `main-api` → a separate Python app, image, container and Gunicorn process. It serves every other API endpoint.
+- `nginx` → public reverse proxy that sends each request to the correct container.
 
-Both application containers use the same Docker image. The `SERVICE_ROLE` environment variable restricts which routes each container can serve.
+There is **no `SERVICE_ROLE` switch and no shared `app.py`** between the two services. Each service has its own `app.py`, `common.py`, `Dockerfile`, Python process and container.
 
-## Requirements
+## Structure
 
-- Fresh Ubuntu VPS (Ubuntu 24.04 recommended)
-- Git
+```text
+services/
+├── price-limit/
+│   ├── app.py
+│   ├── common.py
+│   └── Dockerfile
+└── main-api/
+    ├── app.py
+    ├── common.py
+    └── Dockerfile
+```
 
-The bootstrap script installs Docker Engine and the Docker Compose plugin. No Python, pip packages, virtualenv, Nginx, or application dependencies need to be installed manually on the VPS. Docker builds the image and installs the pinned Python requirements.
+The small `common.py` files are copied into each service so the containers remain independently buildable.
 
-## Local/VPS startup
+## Public route mapping
+
+| Public endpoint | Python application | Docker container |
+|---|---|---|
+| `/api/ad-price-limit` | `services/price-limit/app.py` | `bittiger-price-limit` |
+| `/api/update-ad` | `services/main-api/app.py` | `bittiger-main-api` |
+| `/api/payment-types` | `services/main-api/app.py` | `bittiger-main-api` |
+| `/api/balance` | `services/main-api/app.py` | `bittiger-main-api` |
+| `/api/account` | `services/main-api/app.py` | `bittiger-main-api` |
+| `/api/ads` | `services/main-api/app.py` | `bittiger-main-api` |
+| `/api/ad-details` | `services/main-api/app.py` | `bittiger-main-api` |
+| `/api/remove-ad` | `services/main-api/app.py` | `bittiger-main-api` |
+| `/api/orders` | `services/main-api/app.py` | `bittiger-main-api` |
+| `/api/reference-price` | `services/main-api/app.py` | `bittiger-main-api` |
+| `/api/pending-orders` | `services/main-api/app.py` | `bittiger-main-api` |
+| `/api/analyze-market` | `services/main-api/app.py` | `bittiger-main-api` |
+| `/api/online-ads` | `services/main-api/app.py` | `bittiger-main-api` |
+| `/api/mark-as-paid` | `services/main-api/app.py` | `bittiger-main-api` |
+
+## Deploy
+
+On Ubuntu:
 
 ```bash
-# One-time VPS setup
 sudo bash scripts/install-docker-ubuntu.sh
 
-# Get the project
-git clone https://github.com/YOUR_GITHUB_USERNAME/YOUR_REPOSITORY.git
-cd YOUR_REPOSITORY
-
-# Configure optional fallback credentials
 cp .env.example .env
 nano .env
 
-# Build and start all containers
 bash scripts/deploy.sh
 ```
 
-The public HTTP API is exposed through Nginx on port 80.
-
-## Route mapping
-
-| Public path | Container |
-|---|---|
-| `/api/ad-price-limit` | `bittiger-price-limit` |
-| All other paths | `bittiger-main-api` |
-
-## Test
+Or manually:
 
 ```bash
-curl http://127.0.0.1/health
+docker compose build
+docker compose up -d
 ```
 
-The root and health paths are passed to the main API by Nginx. To inspect each container directly from the Docker network:
+## Verify
+
+```bash
+docker compose ps
+
+curl http://127.0.0.1/health
+curl http://127.0.0.1/
+```
+
+Check the two Python applications independently:
 
 ```bash
 docker compose exec price-limit python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8090/health').read().decode())"
+
 docker compose exec main-api python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8090/health').read().decode())"
 ```
 
-## Logs and operations
+Logs:
 
 ```bash
 docker compose logs -f price-limit
 docker compose logs -f main-api
 docker compose logs -f nginx
-
-docker compose restart price-limit
-docker compose restart main-api
-docker compose restart nginx
-
-docker compose down
-docker compose up -d --build
 ```
 
-## Important notes
+Restart only one service:
 
-- The application currently accepts Bybit API credentials in request JSON bodies, matching the supplied source. `.env` credentials are only fallbacks.
-- Do not commit `.env`. It is excluded by `.gitignore`/`.dockerignore` (add `.gitignore` before pushing).
-- Nginx is initially configured for HTTP on port 80. HTTPS/Certbot should be configured after the domain points to the VPS.
-- The price-limit cache is in-process memory. The Gunicorn worker count is intentionally one for that container so its cache and lock are shared by its request threads.
-- The original Flask application logic is preserved; only container route isolation, health endpoint, and bind address were added.
-# bittigerverse_bybit_api
+```bash
+docker compose restart price-limit
+docker compose restart main-api
+```
+
+Rebuild only one application:
+
+```bash
+docker compose build price-limit
+docker compose up -d price-limit
+
+docker compose build main-api
+docker compose up -d main-api
+```
+
+## Important
+
+The price-limit cache remains local to the `price-limit` container. Because that service uses one Gunicorn worker with multiple threads, the in-memory cache and lock are shared by the threads inside that container.
+
+The main API does not load the price-limit route at all, and the price-limit application does not load the other API routes.
+
+Bybit credentials can still be supplied in each request as `api_key` and `api_secret`, matching the original application. `.env` values remain available as fallbacks.
+
+HTTPS can be added later at Nginx/reverse-proxy level after the domain points to the VPS.
